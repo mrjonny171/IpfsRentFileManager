@@ -2,6 +2,8 @@
 pragma solidity ^0.8.17;
 
 error NotOwner(address attempt, string message);
+error FileDoesNotExist(address attempt, string hashFile, string message);
+error FileAlreadyExists(address attempt, string hashFile, string message);
 
 contract IpfsRentFileManager {
     //Enums
@@ -23,7 +25,7 @@ contract IpfsRentFileManager {
     }
 
     //State Variables
-    mapping(string => File) public s_files;
+    mapping(string => File) private s_files;
 
     //Events
     event FileUploaded(
@@ -42,16 +44,19 @@ contract IpfsRentFileManager {
         uint256 timestamp
     );
 
+    /**
+     * @dev Empty Constructor
+     */
     constructor() {}
 
     /**
      * @dev Enables anyone to upload file metadata
      */
-    function uploadFile(
-        string memory _hashFile,
-        uint256 _size,
-        FileCategory _category
-    ) external {
+    function uploadFile(string memory _hashFile, uint256 _size, FileCategory _category) external {
+        if (s_files[_hashFile].category != FileCategory.Empty) {
+            revert FileAlreadyExists(msg.sender, _hashFile, 'A file with this hash already exists');
+        }
+
         File memory fileInformation = File({
             fileOwner: msg.sender,
             size: _size,
@@ -70,8 +75,12 @@ contract IpfsRentFileManager {
      * @dev Enables the owner of a file to delete his file metadata
      */
     function deleteFile(string memory _hashFile) external {
+        if (s_files[_hashFile].category == FileCategory.Empty) {
+            revert FileDoesNotExist(msg.sender, _hashFile, 'A file with this hash does not exist');
+        }
+
         if (msg.sender != s_files[_hashFile].fileOwner) {
-            revert NotOwner(msg.sender, "Address is not the owner of the file");
+            revert NotOwner(msg.sender, 'Address is not the owner of the file');
         }
 
         File memory fileInformation = File({
@@ -92,47 +101,40 @@ contract IpfsRentFileManager {
      * @dev Saves in the file metadata who and when accessed a certain file
      */
     function updateStatistics(string memory _hashFile) internal {
-        uint256 index = s_files[_hashFile].entrances;
+        if (s_files[_hashFile].category == FileCategory.Empty) {
+            revert FileDoesNotExist(msg.sender, _hashFile, 'A file with this hash does not exist');
+        }
 
         s_files[_hashFile].entrances++;
-        s_files[_hashFile].accessTimes[index] = block.timestamp;
-        s_files[_hashFile].accesses[index] = msg.sender;
+        s_files[_hashFile].accessTimes.push(block.timestamp);
+        s_files[_hashFile].accesses.push(msg.sender);
 
-        emit FileAccessed(
-            s_files[_hashFile].fileOwner,
-            _hashFile,
-            msg.sender,
-            block.timestamp
-        );
+        emit FileAccessed(s_files[_hashFile].fileOwner, _hashFile, msg.sender, block.timestamp);
     }
 
-    function getFileOwner(string memory _hashFile) external returns (address) {
+    function getFileOwner(string memory _hashFile) public returns (address) {
         updateStatistics(_hashFile);
         return s_files[_hashFile].fileOwner;
     }
 
-    function gets_filesize(string memory _hashFile) external returns (uint256) {
+    function getFileSize(string memory _hashFile) public returns (uint256) {
         updateStatistics(_hashFile);
         return s_files[_hashFile].size;
     }
 
-    function getFileCategory(
-        string memory _hashFile
-    ) external returns (uint256) {
+    function getFileCategory(string memory _hashFile) public returns (uint256) {
         updateStatistics(_hashFile);
         return uint256(s_files[_hashFile].category);
     }
 
-    function getFileNumberAccesses(
-        string memory _hashFile
-    ) external returns (uint256) {
+    function getFileNumberAccesses(string memory _hashFile) public returns (uint256) {
         updateStatistics(_hashFile);
-        return s_files[_hashFile].accesses.length;
+        return s_files[_hashFile].entrances;
     }
 
     function getFileAccesses(
         string memory _hashFile
-    ) external returns (address[] memory, uint256[] memory) {
+    ) public returns (address[] memory, uint256[] memory) {
         updateStatistics(_hashFile);
         return (s_files[_hashFile].accesses, s_files[_hashFile].accessTimes);
     }
