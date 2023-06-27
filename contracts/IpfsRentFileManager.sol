@@ -2,8 +2,8 @@
 pragma solidity ^0.8.17;
 
 error NotOwner(address attempt, string message);
-error FileDoesNotExist(address attempt, string hashFile, string message);
-error FileAlreadyExists(address attempt, string hashFile, string message);
+error FileDoesNotExist(address attempt, uint256 _category, string message);
+error FileAlreadyExists(address attempt, uint256 _category, string message);
 
 contract IpfsRentFileManager {
     //Enums
@@ -16,33 +16,28 @@ contract IpfsRentFileManager {
 
     //Structs
     struct File {
+        string url;
+        string fileName;
         address fileOwner;
+        string hashFile;
         uint256 size;
         FileCategory category;
-        address[] accesses;
-        uint256[] accessTimes;
-        uint256 entrances;
+        string houseId;
     }
 
     //State Variables
-    mapping(string => File) private s_files;
+    mapping(string => mapping(string => mapping(FileCategory => File))) private s_files;
 
     //Events
     event FileUploaded(
+        string username,
         address indexed fileOwner,
         string hashFile,
         uint256 size,
         FileCategory category
     );
 
-    event FileDeleted(address indexed fileOwner, string hashFile);
-
-    event FileAccessed(
-        address indexed fileOwner,
-        string hashFile,
-        address indexed accessor,
-        uint256 timestamp
-    );
+    event FileDeleted(address indexed fileOwner, FileCategory file);
 
     /**
      * @dev Empty Constructor
@@ -52,90 +47,158 @@ contract IpfsRentFileManager {
     /**
      * @dev Enables anyone to upload file metadata
      */
-    function uploadFile(string memory _hashFile, uint256 _size, FileCategory _category) external {
-        if (s_files[_hashFile].category != FileCategory.Empty) {
-            revert FileAlreadyExists(msg.sender, _hashFile, 'A file with this hash already exists');
+    function uploadFile(
+        string memory username,
+        string memory _hashFile,
+        uint256 _size,
+        FileCategory _category,
+        string memory _ipfsURL,
+        string memory _fileName,
+        string memory _houseId
+    ) external {
+        if (s_files[_houseId][username][_category].category != FileCategory.Empty) {
+            revert FileAlreadyExists(
+                msg.sender,
+                uint256(_category),
+                'A file with this hash already exists'
+            );
         }
 
         File memory fileInformation = File({
+            fileName: _fileName,
+            url: _ipfsURL,
             fileOwner: msg.sender,
+            hashFile: _hashFile,
             size: _size,
             category: _category,
-            accesses: new address[](0),
-            accessTimes: new uint256[](0),
-            entrances: 0
+            houseId: _houseId
         });
 
-        s_files[_hashFile] = fileInformation;
+        s_files[_houseId][username][_category] = fileInformation;
 
-        emit FileUploaded(msg.sender, _hashFile, _size, _category);
+        emit FileUploaded(username, msg.sender, _hashFile, _size, _category);
     }
 
     /**
      * @dev Enables the owner of a file to delete his file metadata
      */
-    function deleteFile(string memory _hashFile) external {
-        if (s_files[_hashFile].category == FileCategory.Empty) {
-            revert FileDoesNotExist(msg.sender, _hashFile, 'A file with this hash does not exist');
+    function deleteFile(
+        string memory username,
+        FileCategory _category,
+        string memory _houseId
+    ) external {
+        if (s_files[_houseId][username][_category].category == FileCategory.Empty) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(_category),
+                'A file with this hash does not exist'
+            );
         }
 
-        if (msg.sender != s_files[_hashFile].fileOwner) {
+        if (msg.sender != s_files[_houseId][username][_category].fileOwner) {
             revert NotOwner(msg.sender, 'Address is not the owner of the file');
         }
 
         File memory fileInformation = File({
+            fileName: '',
+            url: '',
             fileOwner: address(0),
+            hashFile: '',
             size: 0,
             category: FileCategory.Empty,
-            accesses: new address[](0),
-            accessTimes: new uint256[](0),
-            entrances: 0
+            houseId: ''
         });
 
-        s_files[_hashFile] = fileInformation;
+        s_files[_houseId][username][_category] = fileInformation;
 
-        emit FileDeleted(msg.sender, _hashFile);
+        emit FileDeleted(msg.sender, _category);
     }
 
-    /**
-     * @dev Saves in the file metadata who and when accessed a certain file
-     */
-    function updateStatistics(string memory _hashFile) internal {
-        if (s_files[_hashFile].category == FileCategory.Empty) {
-            revert FileDoesNotExist(msg.sender, _hashFile, 'A file with this hash does not exist');
+    function getFileOwner(
+        string memory username,
+        FileCategory _category,
+        string memory _houseId
+    ) public view returns (address) {
+        if (s_files[_houseId][username][_category].category == FileCategory.Empty) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(_category),
+                'A file with this hash does not exist'
+            );
         }
 
-        s_files[_hashFile].entrances++;
-        s_files[_hashFile].accessTimes.push(block.timestamp);
-        s_files[_hashFile].accesses.push(msg.sender);
-
-        emit FileAccessed(s_files[_hashFile].fileOwner, _hashFile, msg.sender, block.timestamp);
+        return s_files[_houseId][username][_category].fileOwner;
     }
 
-    function getFileOwner(string memory _hashFile) public returns (address) {
-        updateStatistics(_hashFile);
-        return s_files[_hashFile].fileOwner;
+    function getFileSize(
+        string memory username,
+        FileCategory _category,
+        string memory _houseId
+    ) public view returns (uint256) {
+        if (s_files[_houseId][username][_category].category == FileCategory.Empty) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(_category),
+                'A file with this hash does not exist'
+            );
+        }
+        return s_files[_houseId][username][_category].size;
     }
 
-    function getFileSize(string memory _hashFile) public returns (uint256) {
-        updateStatistics(_hashFile);
-        return s_files[_hashFile].size;
+    function getFileCategory(
+        string memory username,
+        FileCategory _category,
+        string memory _houseId
+    ) public view returns (uint256) {
+        if (s_files[_houseId][username][_category].category == FileCategory.Empty) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(_category),
+                'A file with this hash does not currently exist'
+            );
+        }
+        return uint256(s_files[_houseId][username][_category].category);
     }
 
-    function getFileCategory(string memory _hashFile) public returns (uint256) {
-        updateStatistics(_hashFile);
-        return uint256(s_files[_hashFile].category);
-    }
+    function getFilesURL(
+        string memory username,
+        string memory _houseId
+    ) public view returns (string[] memory) {
+        if (s_files[_houseId][username][FileCategory.IdCard].category == FileCategory.Empty) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(FileCategory.IdCard),
+                'A file with this hash does not exist'
+            );
+        }
 
-    function getFileNumberAccesses(string memory _hashFile) public returns (uint256) {
-        updateStatistics(_hashFile);
-        return s_files[_hashFile].entrances;
-    }
+        if (
+            s_files[_houseId][username][FileCategory.LiquidationNote].category == FileCategory.Empty
+        ) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(FileCategory.LiquidationNote),
+                'A file with this hash does not exist'
+            );
+        }
 
-    function getFileAccesses(
-        string memory _hashFile
-    ) public returns (address[] memory, uint256[] memory) {
-        updateStatistics(_hashFile);
-        return (s_files[_hashFile].accesses, s_files[_hashFile].accessTimes);
+        if (
+            s_files[_houseId][username][FileCategory.SalaryReceipt].category == FileCategory.Empty
+        ) {
+            revert FileDoesNotExist(
+                msg.sender,
+                uint256(FileCategory.SalaryReceipt),
+                'A file with this hash does not exist'
+            );
+        }
+
+        string[] memory result = new string[](4);
+
+        result[0] = s_files[_houseId][username][FileCategory.IdCard].hashFile;
+        result[1] = s_files[_houseId][username][FileCategory.SalaryReceipt].hashFile;
+        result[2] = s_files[_houseId][username][FileCategory.LiquidationNote].hashFile;
+        result[3] = s_files[_houseId][username][FileCategory.IdCard].url;
+
+        return result;
     }
 }
